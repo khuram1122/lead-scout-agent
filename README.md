@@ -1,0 +1,454 @@
+\# Lead Scout 🔍
+
+
+
+\*\*An AI sales research \& outreach agent — built for the Kaggle AI Agents Capstone (Agents for Business track)\*\*
+
+
+
+Lead Scout takes a single company name and automatically produces a grounded research briefing, a personalized cold outreach email, and a logged CRM record — turning a 20-30 minute manual task into a single automated pipeline.
+
+
+
+\---
+
+
+
+\## The Problem
+
+
+
+Before a sales rep can send a good cold email, they need to research the company: what they do, what's happening with them recently, and what pain point a pitch should target. This research step is repetitive, time-consuming, and easy to do badly under time pressure — generic "Hi, hope this finds you well" emails get ignored because they obviously skipped this step.
+
+
+
+Multiply this by 50+ leads a week, and the research bottleneck becomes a real cost center for any sales team.
+
+
+
+\## The Solution
+
+
+
+Lead Scout is a three-agent pipeline that automates the entire research-to-outreach workflow:
+
+
+
+1\. \*\*Research\*\* the company using live web search
+
+2\. \*\*Write\*\* a short, specific, personalized outreach email based on that research
+
+3\. \*\*Save\*\* the result to a CRM tracker — flagged for human review, never sent automatically
+
+
+
+The result: a sales rep gets a ready-to-review draft in seconds instead of spending 20+ minutes per lead, while staying fully in control of what actually goes out.
+
+
+
+\## Why Agents (not just a single prompt)?
+
+
+
+This task naturally splits into distinct skills — researching, writing, and recordkeeping — each suited to a different focus and, in the Researcher's case, a different tool (live search). Splitting these into separate agents with a single clear job each, rather than one giant prompt, makes the system more reliable, easier to debug, and easier to extend (e.g. swapping in a different CRM tool later without touching the research or writing logic at all).
+
+
+
+\---
+
+
+
+\## Architecture
+
+
+
+```
+
+&#x20;                ┌─────────────────────┐
+
+&#x20;  Company Name  │                      │
+
+&#x20;  ──────────────▶   Researcher Agent   │
+
+&#x20;                │   (google\_search)    │
+
+&#x20;                └──────────┬───────────┘
+
+&#x20;                            │ research\_briefing
+
+&#x20;                            ▼
+
+&#x20;                ┌──────────────────────┐
+
+&#x20;                │     Writer Agent      │
+
+&#x20;                │  (drafts cold email)  │
+
+&#x20;                └──────────┬───────────┘
+
+&#x20;                            │ draft\_email
+
+&#x20;                            ▼
+
+&#x20;                ┌──────────────────────┐
+
+&#x20;                │     Saver Agent       │
+
+&#x20;                │ (save\_lead\_record     │
+
+&#x20;                │   MCP-style tool)     │
+
+&#x20;                └──────────┬───────────┘
+
+&#x20;                            │
+
+&#x20;                            ▼
+
+&#x20;                 leads\_crm.csv
+
+&#x20;             (status: PENDING REVIEW —
+
+&#x20;              nothing is ever auto-sent)
+
+```
+
+
+
+All three agents run inside a single \*\*`SequentialAgent`\*\* orchestrator (Google ADK), which passes each agent's output into the next automatically via shared session state (`output\_key` → `{placeholder}` references in instructions).
+
+
+
+\### Components
+
+
+
+| Component | Role | Tool(s) used |
+
+|---|---|---|
+
+| `researcher\_agent` | Researches the company: what they do, recent news, likely pain point, suggested outreach angle | `google\_search` (built-in ADK tool) |
+
+| `writer\_agent` | Converts the research briefing into a short, personalized cold email (subject + body) | None — pure reasoning over the briefing |
+
+| `saver\_agent` | Calls a custom tool to log the company, research, and draft email to a CRM file | `save\_lead\_record` (custom MCP-style tool) |
+
+| `orchestrator\_agent` | Wires all three agents into one fixed pipeline | `SequentialAgent` (ADK) |
+
+| `mcp\_server/server.py` | Defines the `save\_lead\_record` tool — writes a row to `leads\_crm.csv` with status `PENDING REVIEW` | `FastMCP` |
+
+
+
+\---
+
+
+
+\## Security Features
+
+
+
+Lead Scout is designed so that \*\*no email is ever sent automatically\*\*. Every completed lead is written to the CRM with a status of `PENDING REVIEW`. A human must read and approve each draft before anything goes out. This matters because:
+
+
+
+\- LLM output, however good, can still contain mistakes — a human checkpoint catches them before they reach a real prospect
+
+\- It keeps the sales rep in control of tone, accuracy, and timing
+
+\- It avoids the reputational risk of a fully autonomous system emailing real companies unsupervised
+
+
+
+No API keys or credentials are stored in code. All secrets are loaded from a local `.env` file, which is excluded from version control via `.gitignore`.
+
+
+
+\---
+
+
+
+\## Example Output
+
+
+
+\*\*Input:\*\* `Stripe`
+
+
+
+\*\*Research briefing (generated by `researcher\_agent`):\*\*
+
+```
+
+COMPANY: Stripe
+
+WHAT THEY DO: Stripe is a multinational financial services and software
+
+as a service company that provides payment-processing software and APIs...
+
+RECENT NEWS: Stripe recently announced a partnership with Google to enable
+
+businesses to sell within Google's AI Mode and Gemini app, and launched
+
+Link wallets for AI agents to make payments on their behalf...
+
+LIKELY PAIN POINT: Ensuring robust security and fraud prevention for
+
+AI-driven transactions as autonomous agents begin making payments...
+
+SUGGESTED ANGLE: Ask how they're preparing for the unique fraud vectors
+
+emerging with agentic commerce.
+
+```
+
+
+
+\*\*Draft email (generated by `writer\_agent`):\*\*
+
+```
+
+SUBJECT: Stripe's AI Commerce \& Fraud Detection
+
+
+
+Hi there,
+
+
+
+I saw the exciting news about Stripe's expansion into AI commerce,
+
+particularly with agent-led purchases and your enhanced fraud
+
+protection. It's impressive how you're becoming core economic
+
+infrastructure for this new wave.
+
+
+
+As you navigate this evolving landscape, the unique fraud vectors
+
+introduced by agentic commerce must be a growing consideration.
+
+Solutions in this space are crucial for maintaining trust and security
+
+across these sophisticated new transaction methods.
+
+
+
+Would you be open to a brief 15-minute chat sometime next week to
+
+discuss how companies are tackling these emerging fraud challenges?
+
+
+
+Best,
+
+\[Your Name]
+
+```
+
+
+
+This record is then saved to `leads\_crm.csv` with status `PENDING REVIEW`.
+
+
+
+\---
+
+
+
+\## Setup Instructions
+
+
+
+\### Prerequisites
+
+\- Python 3.10+
+
+\- A free Gemini API key from \[Google AI Studio](https://aistudio.google.com)
+
+
+
+\### Installation
+
+
+
+```bash
+
+git clone https://github.com/khuram1122/lead-scout-agent.git
+
+cd lead-scout-agent
+
+
+
+python -m venv .venv
+
+.venv\\Scripts\\activate.bat        # Windows
+
+\# source .venv/bin/activate       # Mac/Linux
+
+
+
+pip install google-adk python-dotenv mcp
+
+```
+
+
+
+\### Configuration
+
+
+
+Create a `.env` file in the project root:
+
+
+
+```
+
+GOOGLE\_API\_KEY=your\_api\_key\_here
+
+GOOGLE\_GENAI\_USE\_VERTEXAI=FALSE
+
+```
+
+
+
+\*\*Never commit this file.\*\* It's already excluded via `.gitignore`.
+
+
+
+\### Running Lead Scout
+
+
+
+Run the full pipeline on a company of your choice:
+
+
+
+```bash
+
+python test\_orchestrator.py "Company Name"
+
+```
+
+
+
+This will:
+
+1\. Print the research briefing
+
+2\. Print the drafted email
+
+3\. Save the full record to `leads\_crm.csv` in the project root, with status `PENDING REVIEW`
+
+
+
+\### Notes on the free Gemini tier
+
+
+
+The free tier allows 20 requests/day per model. Each full pipeline run uses roughly 3-4 requests. If you see a `429 RESOURCE\_EXHAUSTED` error mentioning a daily quota, the limit resets at midnight Pacific Time. The included retry logic automatically handles brief `503` server-busy errors with backoff.
+
+
+
+\---
+
+
+
+\## Project Structure
+
+
+
+```
+
+lead-scout-agent/
+
+├── researcher\_agent/
+
+│   ├── \_\_init\_\_.py
+
+│   └── agent.py
+
+├── writer\_agent/
+
+│   ├── \_\_init\_\_.py
+
+│   └── agent.py
+
+├── orchestrator\_agent/
+
+│   ├── \_\_init\_\_.py
+
+│   └── agent.py          # SequentialAgent wiring all three sub-agents
+
+├── mcp\_server/
+
+│   ├── \_\_init\_\_.py
+
+│   └── server.py          # save\_lead\_record tool definition
+
+├── test\_orchestrator.py   # Run the full pipeline end-to-end
+
+├── .env                    # Your API key (not committed)
+
+├── .gitignore
+
+└── README.md
+
+```
+
+
+
+\---
+
+
+
+\## Course Concepts Demonstrated
+
+
+
+| Concept | Where |
+
+|---|---|
+
+| Multi-agent system (ADK) | `orchestrator\_agent/agent.py` — `SequentialAgent` chaining three sub-agents |
+
+| MCP Server | `mcp\_server/server.py` — custom `save\_lead\_record` tool |
+
+| Security features | Human-approval gate (`PENDING REVIEW` status); no secrets in code |
+
+| Agent skills | `google\_search` tool (research), `save\_lead\_record` tool (CRM logging) |
+
+
+
+\---
+
+
+
+\## Future Improvements
+
+
+
+\- Streamlit UI for non-technical sales reps to use without touching the command line
+
+\- Batch processing — research multiple leads from a CSV upload in one run
+
+\- Approve/edit/reject buttons directly in the UI instead of editing the CSV manually
+
+\- Swap the CSV-based CRM for a real integration (e.g. HubSpot, Airtable) via an additional MCP server
+
+
+
+\---
+
+
+
+\## Built With
+
+
+
+\- \[Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/)
+
+\- Gemini 2.5 Flash-Lite
+
+\- Python's `mcp` (Model Context Protocol) library
+
