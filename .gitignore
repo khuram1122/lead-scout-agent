@@ -5,3 +5,4 @@
 __pycache__/
 *.pyc
 .adk/
+leads_crm.csv

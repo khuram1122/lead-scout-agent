@@ -1,6 +1,7 @@
 from google.adk import Agent
 from google.adk.agents import SequentialAgent
 from google.adk.tools import google_search
+from mcp_server.server import save_lead_record
 
 # Step 1: Researcher — same as before, but now saves its output to state
 researcher = Agent(
@@ -30,6 +31,7 @@ guessing.""",
     tools=[google_search],
     output_key="research_briefing",
 )
+
 
 # Step 2: Writer — reads {research_briefing} from shared state automatically
 writer = Agent(
@@ -65,9 +67,27 @@ EMAIL:
 """,
     output_key="draft_email",
 )
+saver = Agent(
+    name="saver_agent",
+    model="gemini-2.5-flash-lite",
+    instruction="""You will be given a company's research briefing and a 
+draft email below:
+
+RESEARCH:
+{research_briefing}
+
+DRAFT EMAIL:
+{draft_email}
+
+Call the save_lead_record tool with these exact values: the company name 
+(extract it from the COMPANY: field in the research), the full research 
+briefing text, and the full draft email text. After calling the tool, 
+simply repeat back its confirmation message to the user.""",
+    tools=[save_lead_record],
+)
 
 # The Orchestrator: runs researcher, then writer, in fixed order
 root_agent = SequentialAgent(
     name="lead_scout_orchestrator",
-    sub_agents=[researcher, writer],
+    sub_agents=[researcher, writer, saver],
 )
