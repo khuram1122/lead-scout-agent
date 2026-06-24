@@ -1,3 +1,12 @@
+"""
+Writer Agent
+
+Takes a research briefing (produced by the Researcher agent) and drafts a
+short, personalized cold outreach email. This agent uses no tools — it's
+pure reasoning over text it's given, which keeps it fast and cheap to run
+compared to the search-using Researcher.
+"""
+
 from google.adk import Agent
 
 root_agent = Agent(
@@ -35,4 +44,7 @@ EMAIL:
 [full email body, including greeting and sign-off placeholder like 
 "Best, [Your Name]"]
 """,
+    # Saves this agent's draft email into shared state under "draft_email",
+    # which the Saver agent references when logging the final CRM record.
+    output_key="draft_email",
 )

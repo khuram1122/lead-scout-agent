@@ -1,9 +1,33 @@
+"""
+Orchestrator Agent
+
+This is the heart of Lead Scout: a fixed three-step pipeline that takes a
+single company name and produces a complete, logged lead record.
+
+Design decision: SequentialAgent (rather than a single agent with multiple
+tools, or a more dynamic multi-agent routing setup) was chosen because the
+three steps — research, write, save — always happen in the same fixed
+order, with each step strictly depending on the previous one's output.
+There's no need for dynamic routing or agent-to-agent negotiation here,
+so the simplest correct tool is a fixed sequence.
+
+Data handoff mechanism: each sub-agent below uses `output_key` to write its
+final response into shared session state. The next agent in the sequence
+references that value directly in its own instruction text using
+{placeholder} syntax (e.g. {research_briefing}). ADK resolves these
+placeholders automatically before calling the model, so no manual
+Python glue code is needed to pass data between agents.
+"""
+
 from google.adk import Agent
 from google.adk.agents import SequentialAgent
 from google.adk.tools import google_search
 from mcp_server.server import save_lead_record
 
-# Step 1: Researcher — same as before, but now saves its output to state
+# --- Step 1: Researcher ---
+# Researches the company via live web search and produces a structured
+# briefing. See researcher_agent/agent.py for the standalone version with
+# full comments on the output format design.
 researcher = Agent(
     name="researcher_agent",
     model="gemini-2.5-flash-lite",
@@ -32,8 +56,10 @@ guessing.""",
     output_key="research_briefing",
 )
 
-
-# Step 2: Writer — reads {research_briefing} from shared state automatically
+# --- Step 2: Writer ---
+# Drafts the outreach email using ONLY the research briefing as input —
+# {research_briefing} below is automatically filled in by ADK with
+# whatever the researcher agent produced above.
 writer = Agent(
     name="writer_agent",
     model="gemini-2.5-flash-lite",
@@ -67,6 +93,13 @@ EMAIL:
 """,
     output_key="draft_email",
 )
+
+# --- Step 3: Saver ---
+# Logs the completed lead to the CRM via a custom tool (save_lead_record).
+# SECURITY DESIGN: this agent never sends anything — the tool it calls
+# only writes a row to a CSV with status "PENDING REVIEW". A human must
+# read and approve every record before any real outreach happens. This is
+# an intentional safety boundary, not a missing feature.
 saver = Agent(
     name="saver_agent",
     model="gemini-2.5-flash-lite",
@@ -86,7 +119,8 @@ simply repeat back its confirmation message to the user.""",
     tools=[save_lead_record],
 )
 
-# The Orchestrator: runs researcher, then writer, in fixed order
+# The full pipeline: always runs researcher -> writer -> saver, in that
+# fixed order, with state automatically flowing between them.
 root_agent = SequentialAgent(
     name="lead_scout_orchestrator",
     sub_agents=[researcher, writer, saver],
