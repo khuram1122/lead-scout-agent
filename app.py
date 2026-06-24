@@ -9,8 +9,17 @@ Nothing is ever sent automatically. Every result is saved to leads_crm.csv
 with status PENDING REVIEW.
 """
 
+import os
 from dotenv import load_dotenv
 load_dotenv()
+
+import streamlit as st
+
+# Use Streamlit Cloud's secrets if available (deployed), otherwise fall
+# back to the local .env file (local development).
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
 
 import asyncio
 import time
