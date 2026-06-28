@@ -9,19 +9,11 @@ Nothing is ever sent automatically. Every result is saved to leads_crm.csv
 with status PENDING REVIEW.
 """
 
-import os
 from dotenv import load_dotenv
 load_dotenv()
 
-import streamlit as st
-
-# Use Streamlit Cloud's secrets if available (deployed), otherwise fall
-# back to the local .env file (local development).
-if "GOOGLE_API_KEY" in st.secrets:
-    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
-    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
-
 import asyncio
+import os
 import time
 import streamlit as st
 from google.adk.runners import InMemoryRunner
@@ -29,6 +21,12 @@ from google.genai import types
 from google.genai.errors import ServerError
 
 from orchestrator_agent.agent import root_agent
+
+# Path to the CRM file, same one save_lead_record writes to (see
+# mcp_server/server.py). Defined here too so the download button can read
+# it directly, regardless of whether the app is running locally or on
+# Streamlit Cloud.
+CRM_FILE_PATH = os.path.join(os.path.dirname(__file__), "leads_crm.csv")
 
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 20
@@ -129,11 +127,39 @@ if submitted:
         st.info(confirmation or "Saved to leads_crm.csv — status: PENDING REVIEW")
 
         st.caption(
-            "Nothing has been sent. This draft is saved for human review. "
-            "Open leads_crm.csv to see the full tracker."
+            "Nothing has been sent. This draft is saved for human review."
         )
 
+        # Offer the CRM file as a direct download right after a successful
+        # run, since the record was just added to it.
+        if os.path.isfile(CRM_FILE_PATH):
+            with open(CRM_FILE_PATH, "rb") as f:
+                st.download_button(
+                    label="⬇️ Download CRM tracker (leads_crm.csv)",
+                    data=f,
+                    file_name="leads_crm.csv",
+                    mime="text/csv",
+                )
+
 st.divider()
+
+# Standalone download section — lets anyone (including judges trying the
+# live deployed app) pull the current CRM tracker at any time, even
+# without running a new search first.
+st.subheader("📂 View All Saved Leads")
+if os.path.isfile(CRM_FILE_PATH):
+    with open(CRM_FILE_PATH, "rb") as f:
+        crm_bytes = f.read()
+    st.download_button(
+        label="⬇️ Download full CRM tracker (leads_crm.csv)",
+        data=crm_bytes,
+        file_name="leads_crm.csv",
+        mime="text/csv",
+        key="standalone_download",
+    )
+else:
+    st.caption("No leads saved yet on this instance. Research a company above to get started.")
+
 st.caption(
     "Lead Scout never sends emails automatically — every result requires "
     "human approval before outreach."
